@@ -41,10 +41,21 @@ class Player:
         self.preliminary_card = None
 
 class GameState:
-    def __init__(self, player_names: List[str] = None):
+    ALL_DEFAULT_NAMES = [
+        "اللاعب (أنت)",
+        "كريم (AI)",
+        "سارة (AI)",
+        "طارق (AI)",
+        "ليلى (AI)",
+        "يوسف (AI)"
+    ]
+
+    def __init__(self, player_names: List[str] = None, num_players: int = 5):
         if player_names is None:
-            player_names = ["اللاعب (أنت)", "كريم (AI)", "سارة (AI)", "طارق (AI)", "ليلى (AI)"]
+            num_players = max(2, min(6, num_players))
+            player_names = self.ALL_DEFAULT_NAMES[:num_players]
         
+        self.num_players = len(player_names)
         self.players: List[Player] = []
         for i, name in enumerate(player_names):
             self.players.append(Player(player_id=i, name=name, chips=1000, is_human=(i == 0)))

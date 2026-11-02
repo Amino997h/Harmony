@@ -48,7 +48,12 @@ class CardGameApp:
         self.turn_transition_target_player = None
         self.mote_manager = AmbientMoteManager(bounds_rect=(70, 70, self.virtual_width - 140, 580), count=35)
 
-        self.game = GameState()
+        # Player count mode (2 to 6 players, default 5)
+        self.num_players_mode: int = 5
+        self.show_player_select_modal: bool = False
+        self.btn_select_mode_buttons = []
+
+        self.game = GameState(num_players=self.num_players_mode)
         self.sound = SoundManager()
         self.selected_card_index: int = -1
         self.selected_target_id: int = -1
@@ -120,13 +125,14 @@ class CardGameApp:
 
     def init_natural_table_layout(self):
         """
-        True Oval Poker Table Distribution:
-        - Center: Dealer 5 cards + 3D Poker Chips Pot
-        - Player 0 (Human): Bottom Center (comfortable large view with Hover Lift)
-        - AI 1: Far Left (West)
-        - AI 2: Top-Left (North-West)
-        - AI 3: Top-Right (North-East)
-        - AI 4: Far Right (East)
+        Dynamic Natural Seating Coordinates based on player count:
+        - Human (Player 0) is always Bottom Center.
+        - Other players (AIs) are comfortably spread around the oval table:
+          * 2 Players (1 vs 1): AI 1 directly opposite at Top Center (North)
+          * 3 Players (1 vs 2): AI 1 Top-Left (North-West), AI 2 Top-Right (North-East)
+          * 4 Players (1 vs 3): AI 1 Far Left (West), AI 2 Top Center (North), AI 3 Far Right (East)
+          * 5 Players (1 vs 4): AI 1 Left, AI 2 Top-Left, AI 3 Top-Right, AI 4 Right
+          * 6 Players (1 vs 5): AI 1 Far Left, AI 2 Top-Left, AI 3 Top Center, AI 4 Top-Right, AI 5 Far Right
         """
         self.center_x = self.width // 2
         self.center_y = 350
@@ -142,16 +148,48 @@ class CardGameApp:
             (self.center_x - 170 + i * 85, self.center_y + 15) for i in range(5)
         ]
 
-        # Natural Circular Seating Coordinates: (id, x, y, width, height)
-        self.seat_positions = {
-            1: (45, 300, 160, 135),    # AI 1: Left (West)
-            2: (260, 95, 160, 135),   # AI 2: Top-Left (North-West)
-            3: (860, 95, 160, 135),   # AI 3: Top-Right (North-East)
-            4: (1075, 300, 160, 135), # AI 4: Right (East)
-        }
-
         # Human Seat at Bottom
         self.human_seat_y = 575
+
+        # Dynamic AI Seating layouts
+        n_ai = len(self.game.players) - 1
+        self.seat_positions = {}
+
+        if n_ai == 1:
+            # 1 vs 1: Direct Head-to-Head at Top Center
+            self.seat_positions = {
+                1: (self.center_x - 90, 85, 180, 135)
+            }
+        elif n_ai == 2:
+            # 3 Players: Two AIs at Top-Left and Top-Right
+            self.seat_positions = {
+                1: (230, 95, 160, 135),
+                2: (890, 95, 160, 135)
+            }
+        elif n_ai == 3:
+            # 4 Players: Left, Top Center, Right
+            self.seat_positions = {
+                1: (45, 260, 160, 135),
+                2: (self.center_x - 80, 85, 160, 135),
+                3: (1075, 260, 160, 135)
+            }
+        elif n_ai == 4:
+            # 5 Players: Left, Top-Left, Top-Right, Right
+            self.seat_positions = {
+                1: (45, 300, 160, 135),
+                2: (260, 95, 160, 135),
+                3: (860, 95, 160, 135),
+                4: (1075, 300, 160, 135)
+            }
+        else:
+            # 6 Players: Left, Top-Left, Top-Center, Top-Right, Right
+            self.seat_positions = {
+                1: (45, 300, 160, 135),
+                2: (230, 95, 155, 135),
+                3: (self.center_x - 75, 85, 150, 135),
+                4: (895, 95, 155, 135),
+                5: (1075, 300, 160, 135)
+            }
 
     def get_player_coords(self, player_id: int):
         if player_id == 0:
@@ -198,11 +236,50 @@ class CardGameApp:
         # Top Bar Utility Buttons
         self.btn_fullscreen = Button(20, 18, 140, 36, "شاشة كاملة (F11)", (30, 70, 90), self.toggle_fullscreen, icon="🖥️")
         self.btn_rules = Button(170, 18, 125, 36, "دليل القواعد", (40, 50, 70), self.toggle_rules_modal, icon="📜")
-        self.btn_card_matrix = Button(305, 18, 160, 36, "خريطة الـ 60 كرت", (20, 60, 100), self.toggle_card_matrix_modal, icon="🃏")
-        self.btn_toggle_chances = Button(self.virtual_width - 180, 18, 155, 36, "شروط الفوز 🏆", GOLD_DARK, self.toggle_chances_drawer, icon="📊")
+        self.btn_card_matrix = Button(305, 18, 150, 36, "خريطة الـ 60", (20, 60, 100), self.toggle_card_matrix_modal, icon="🃏")
+        self.btn_player_count = Button(465, 18, 145, 36, "عدد اللاعبين", (79, 70, 229), self.toggle_player_select_modal, icon="👥")
+        self.btn_toggle_chances = Button(self.virtual_width - 170, 18, 145, 36, "شروط الفوز", GOLD_DARK, self.toggle_chances_drawer, icon="📊")
+
+        # Player Count Selection Modal Buttons
+        self.init_player_mode_buttons()
 
         # Victory / Defeat Modal Action Button
         self.btn_next_round = Button(self.center_x - 120, 530, 240, 52, "جولة جديدة 🏆", BTN_SUCCESS, self.on_next_round_clicked)
+
+    def init_player_mode_buttons(self):
+        self.btn_select_mode_buttons = []
+        modes = [
+            (2, "1 ضد 1 (مبارزة ثنائية ⚔️)", "مواجهة مباشرة وتحدي سريع بينك وبين الذكاء الاصطناعي"),
+            (3, "3 لاعبين (طاولة ثلاثية 🎯)", "منافسة تكتيكية سريعة ومثيرة"),
+            (4, "4 لاعبين (طاولة رباعية ♠)", "توازن ممتاز ومساحة استراتيجية واسعة"),
+            (5, "5 لاعبين (النظام القياسي الرسمي ⭐)", "التجربة الكلاسيكية الكاملة لـ 5 لاعبين"),
+            (6, "6 لاعبين (طاولة ملكية سداسية 👑)", "أقصى درجات الإثارة والرهانات الضخمة والمفاجآت"),
+        ]
+        start_y = 190
+        for i, (count, title, desc) in enumerate(modes):
+            btn = Button(
+                self.center_x - 240, start_y + i * 65, 480, 50,
+                title,
+                (37, 99, 235) if count == self.num_players_mode else (30, 41, 59),
+                callback=lambda c=count: self.set_player_count_mode(c)
+            )
+            self.btn_select_mode_buttons.append((btn, count, desc))
+
+    def set_player_count_mode(self, count: int):
+        self.sound.play('chip')
+        self.num_players_mode = count
+        self.show_player_select_modal = False
+        self.game = GameState(num_players=self.num_players_mode)
+        self.init_natural_table_layout()
+        self.init_player_mode_buttons()
+        self.start_game_lifecycle()
+
+    def toggle_player_select_modal(self):
+        self.sound.play('card_click')
+        self.show_player_select_modal = not self.show_player_select_modal
+        if self.show_player_select_modal:
+            self.show_rules_modal = False
+            self.show_card_matrix_modal = False
 
     def toggle_rules_modal(self):
         self.sound.play('card_click')
@@ -828,7 +905,23 @@ class CardGameApp:
             if self.btn_card_matrix.handle_event(event):
                 continue
 
+            if self.btn_player_count.handle_event(event):
+                continue
+
             if self.btn_toggle_chances.handle_event(event):
+                continue
+
+            if self.show_player_select_modal:
+                for btn, _, _ in self.btn_select_mode_buttons:
+                    if btn.handle_event(event):
+                        break
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    # Click outside modal closes it
+                    mw, mh = 620, 530
+                    mx = self.center_x - mw // 2
+                    my = self.center_y - mh // 2
+                    if not pygame.Rect(mx, my, mw, mh).collidepoint(event.pos):
+                        self.show_player_select_modal = False
                 continue
 
             if self.show_rules_modal:
@@ -915,8 +1008,12 @@ class CardGameApp:
         # Update buttons hover animations
         for b in [self.btn_fullscreen, self.btn_draw_order, self.btn_hold_play, self.btn_raise_card,
                   self.btn_pass, self.btn_discard, self.btn_blind, self.btn_joker, self.btn_steal,
-                  self.btn_fold, self.btn_rules, self.btn_card_matrix, self.btn_toggle_chances, self.btn_next_round]:
+                  self.btn_fold, self.btn_rules, self.btn_card_matrix, self.btn_player_count, self.btn_toggle_chances, self.btn_next_round]:
             b.update(dt_ms, mouse_pos)
+
+        if self.show_player_select_modal:
+            for btn, _, _ in self.btn_select_mode_buttons:
+                btn.update(dt_ms, mouse_pos)
 
         # Update announcement
         self.announcement.update(dt_ms)
@@ -965,6 +1062,7 @@ class CardGameApp:
         self.btn_fullscreen.draw(self.virtual_screen, mouse_pos)
         self.btn_rules.draw(self.virtual_screen, mouse_pos)
         self.btn_card_matrix.draw(self.virtual_screen, mouse_pos)
+        self.btn_player_count.draw(self.virtual_screen, mouse_pos)
         self.btn_toggle_chances.draw(self.virtual_screen, mouse_pos)
 
         # 3D Stacked Chips Pot with Soft Pulsing Radial Aura
@@ -1069,6 +1167,10 @@ class CardGameApp:
         if self.show_card_matrix_modal:
             known_cards = self.game.get_all_known_revealed_cards()
             draw_deck_matrix_modal(self.virtual_screen, self.width, self.height, known_cards, mouse_pos)
+
+        # Player Count Selection Modal
+        if self.show_player_select_modal:
+            self.draw_player_select_modal(mouse_pos)
 
         # Red Flash Overlay on elimination/defeat
         if self.red_flash_timer_ms > 0:
@@ -1392,6 +1494,50 @@ class CardGameApp:
         for i, line in enumerate(rules_lines):
             l_surf = FONT_SM.render(render_arabic(line), True, TEXT_WHITE if not line.startswith("انقر") else GOLD)
             self.virtual_screen.blit(l_surf, (modal.x + 30, modal.y + 65 + i * 36))
+
+    def draw_player_select_modal(self, mouse_pos):
+        """Luxury Player Count Selection Modal Dialog."""
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((5, 8, 16, 210))
+        self.virtual_screen.blit(overlay, (0, 0))
+
+        mw, mh = 620, 545
+        mx = self.center_x - mw // 2
+        my = self.center_y - mh // 2
+
+        modal_s = pygame.Surface((mw, mh), pygame.SRCALPHA)
+        pygame.draw.rect(modal_s, (15, 23, 42, 250), modal_s.get_rect(), border_radius=18)
+        pygame.draw.rect(modal_s, GOLD, modal_s.get_rect(), width=2, border_radius=18)
+        self.virtual_screen.blit(modal_s, (mx, my))
+
+        # Title
+        t_title = render_arabic("👥 اختر نظام وعدد اللاعبين على الطاولة")
+        ts = FONT_XL.render(t_title, True, GOLD_BRIGHT)
+        self.virtual_screen.blit(ts, (self.center_x - ts.get_width() // 2, my + 24))
+
+        # Subtitle
+        sub = render_arabic("اختر الوضع المناسب لبدء جولة جديدة فوراً مع توزيع المقاعد تلقائياً")
+        subs = FONT_SM.render(sub, True, TEXT_WHITE)
+        self.virtual_screen.blit(subs, (self.center_x - subs.get_width() // 2, my + 68))
+
+        # Draw buttons and their descriptions
+        for btn, count, desc in self.btn_select_mode_buttons:
+            btn.draw(self.virtual_screen, mouse_pos)
+            # Active badge tag
+            if count == self.num_players_mode:
+                badge_t = render_arabic("✓ الوضع النشط حالياً")
+                bs = FONT_XS.render(badge_t, True, COLOR_ACHIEVED)
+                self.virtual_screen.blit(bs, (btn.rect.right - bs.get_width() - 15, btn.rect.centery - bs.get_height() // 2))
+
+            # Small description below button
+            desc_t = render_arabic(desc)
+            ds = FONT_XS.render(desc_t, True, TEXT_MUTED)
+            self.virtual_screen.blit(ds, (self.center_x - ds.get_width() // 2, btn.rect.bottom + 2))
+
+        # Close hint
+        close_txt = render_arabic("انقر في أي مكان بالخارج للإلغاء والعودة للعب")
+        cs = FONT_XS.render(close_txt, True, TEXT_MUTED)
+        self.virtual_screen.blit(cs, (self.center_x - cs.get_width() // 2, my + mh - 26))
 
     def run(self):
         while True:
