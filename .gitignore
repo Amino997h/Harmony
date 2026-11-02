@@ -1,0 +1,11 @@
+# Python & Build Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+build/
+
+# Keep dist for users or ignore large build files if desired
+# Note: Executable is in dist/
+# To allow cloning easily, exclude internal pyinstaller cache but keep source
+*.log
